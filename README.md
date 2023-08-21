@@ -1,4 +1,4 @@
-# YoloV5 with SORT implementation
+# YoloV5 with SORT implementation And DeepSORT implementation
 
 ### Based on Ultralytics [YoloV5](https://github.com/ultralytics/yolov5) and [SORT](https://github.com/abewley/sort)
 
@@ -16,8 +16,14 @@
     pip install -r requirements.txt
  ```
 
+## Run DeepSORT tracking
+
+```
+python DeepSort.py --weights <path to .pt file> --source<path to video file or specify camera> --show-vid (to show video) --save-vid(to save video)
+```
 
  ## Run tracking with totals output
  ```
  python track_with_totals_output.py
  ```
+
