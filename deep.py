@@ -27,6 +27,7 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 import json
+import datetime
 
 from deep_sort.utils.parser import get_config
 from deep_sort.deep_sort import DeepSort
@@ -37,7 +38,7 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-total_count = 0
+
 class_dict = {}
 tracker = []
 dir_data = {}
@@ -234,7 +235,7 @@ def detect(opt):
             im0 = annotator.result()
                             
             if show_vid:
-                global total_count
+                
                 color=(0,0,255)
                 # print(f"Shape: {im0.shape}")
 
@@ -247,7 +248,7 @@ def detect(opt):
                 thickness = 3 # font thickness
                 font = cv2.FONT_HERSHEY_SIMPLEX
                 fontScale = 1.2 
-                cv2.putText(im0, "Outgoing Trash:  "+str(total_count), (60, 150), font, 
+                cv2.putText(im0, "Outgoing Trash:  "+str(sum(class_dict.keys())), (60, 150), font, 
                    fontScale, (99,185,245), thickness, cv2.LINE_AA)
 
         
@@ -294,7 +295,7 @@ def detect(opt):
 
 
 def count_obj(box,w,h,id,cls,class_dict):
-    global total_count,tracker
+    global tracker
   
     #find center of the box 
     cx, cy = (int(box[0]+(box[2]-box[0])/2) , int(box[1]+(box[3]-box[1])/2))
@@ -303,15 +304,11 @@ def count_obj(box,w,h,id,cls,class_dict):
         return
             
     if cy < (int(h/2)-20):
-        if id not in tracker:
-            #print(f"\nID: {id}, H: {h} up\n")
-            total_count +=1
-            tracker.append(id)
                 
-            if cls not in class_dict:
-                class_dict[cls] = 1
-            else:
-                class_dict[cls] += 1  
+        if cls not in class_dict:
+            class_dict[cls] = 1
+        else:
+            class_dict[cls] += 1  
 
 def motion(id,y):
     ''' determines if objects are moving'''
@@ -336,8 +333,10 @@ def marker_object_tracking(outputs):
     for output in outputs:
         id = output[4]
         y = output[1]
+
         if id not in dir_data:
             dir_data[id] = y
+
     for key in list(dir_data.keys()):
         if key not in outputs[:,4]:
             del dir_data[key]
@@ -353,14 +352,14 @@ def marker_object_tracking(outputs):
                 miss_count = 0
         else:
             miss_count = 0
-            if dir_data[top_id[0]] < 1270:
+            if dir_data[top_id[0]] < 200:
                 save_data = True
                 top_id.clear()
                 get_top_id()
             else: 
                 save_data = False
 
-    if len(top_id) == 0:
+    elif len(top_id) == 0:
         get_top_id()
         
 
@@ -373,7 +372,7 @@ def get_top_id():
     global top_id
     global dir_data
     id = max(dir_data, key=dir_data.get)
-    if dir_data[id] < 200:
+    if dir_data[id] < 1270:
         top_id.clear()
         return
     else:
@@ -389,16 +388,24 @@ def save(img,annotations):
     name = str(int(time.time()))
     image_save_dir = Path('inference/output')
     annotations_save_dir = Path('inference/output/annotations')
+
     if not os.path.exists(image_save_dir):
         os.makedirs(image_save_dir)
+
     if not os.path.exists(annotations_save_dir):
         os.makedirs(annotations_save_dir)
+
     file = (f"{image_save_dir/name}.jpg")
     cv2.imwrite(file,img)
     with open((annotations_save_dir/name).with_suffix('.txt'), 'a') as file:
         file.write(annotations)
-    data = json.dumps(class_dict)
-    upload_data(device_id=1, raw_image_path=f"{image_save_dir/name}.jpg", annotated_image_path=f"{annotations_save_dir/name}.txt",data=data)
+    now = datetime.datetime.now()
+    timestamp = now.strftime('%m-%d-%y %H:%M:%S')
+    data = class_dict.copy()
+    data['timestamp'] = timestamp
+    data['totals'] = sum(class_dict.values())
+    json.dumps(data)
+    upload_data(device_id=1, image_file_path=f"{image_save_dir}/{name}.jpg", bounding_box_file_path=f"{annotations_save_dir}/{name}.txt",data=data)
     print("Data saved")
     # os.remove(f"{image_save_dir/name}.jpg")
     # os.remove(f"{annotations_save_dir/name}.txt")
