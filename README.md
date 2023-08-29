@@ -19,11 +19,7 @@
 ## Run DeepSORT tracking
 
 ```
-python DeepSort.py --weights <path to .pt file> --source<path to video file or specify camera> --show-vid (to show video) --save-vid(to save video)
+python deep.py --weights <path to .pt file> --source<path to video file or specify camera>  --save-vid(to save video)
 ```
 
- ## Run tracking with totals output
- ```
- python track_with_totals_output.py
- ```
 

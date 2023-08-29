@@ -40,7 +40,6 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 
 class_dict = {}
-tracker = []
 dir_data = {}
 top_id = []
 save_data = False
@@ -295,7 +294,7 @@ def detect(opt):
 
 
 def count_obj(box,w,h,id,cls,class_dict):
-    global tracker
+
   
     #find center of the box 
     cx, cy = (int(box[0]+(box[2]-box[0])/2) , int(box[1]+(box[3]-box[1])/2))
@@ -399,21 +398,19 @@ def save(img,annotations):
     cv2.imwrite(file,img)
     with open((annotations_save_dir/name).with_suffix('.txt'), 'a') as file:
         file.write(annotations)
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
     timestamp = now.strftime('%m-%d-%y %H:%M:%S')
     data = class_dict.copy()
     data['timestamp'] = timestamp
     data['totals'] = sum(class_dict.values())
     json.dumps(data)
-    upload_data(device_id=1, image_file_path=f"{image_save_dir}/{name}.jpg", bounding_box_file_path=f"{annotations_save_dir}/{name}.txt",data=data)
+    upload_data(device_id=2, image_file_path=f"{image_save_dir}/{name}.jpg", bounding_box_file_path=f"{annotations_save_dir}/{name}.txt",data=data)
     print("Data saved")
     # os.remove(f"{image_save_dir/name}.jpg")
     # os.remove(f"{annotations_save_dir/name}.txt")
     return
     
-
-
-
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='yolov5s.pt', help='model.pt path(s)')
@@ -446,7 +443,3 @@ if __name__ == '__main__':
     with torch.no_grad():
         detect(opt)
 
-
-# Camera onoly has one panel in frame
-# don't want to upload while tracking
-# Possibly save images in a queue and upload them in a separate thread
