@@ -4,7 +4,7 @@
 
 ## Installation
  ```
-    git clone https://github.com/Dnapert/tracking_yolo.git
+    git clone https://github.com/BenioffOceanInitiative/tracking_yolo.git
  ```
 
 ## Usage
