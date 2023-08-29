@@ -4,6 +4,7 @@ from utils.general import (LOGGER, check_img_size, non_max_suppression, scale_bo
 from utils.dataloaders import LoadImages,LoadStreams
 from utils.torch_utils import select_device, time_sync
 from ultralytics.utils.plotting import Annotator, colors
+from upload_data import upload_data
 
 
 
@@ -19,7 +20,6 @@ sys.path.insert(0, './yolov5')
 
 import argparse
 import os
-import platform
 import shutil
 import time
 from pathlib import Path
@@ -40,8 +40,11 @@ total_count = 0
 class_dict = {}
 tracker = []
 dir_data = {}
-
+top_id = []
+save_data = False
+frame_count = 0
 def detect(opt):
+    global save_data
     out, source, yolo_model, deep_sort_model, show_vid, save_vid, save_txt, imgsz, evaluate, half, project, name, exist_ok= \
         opt.output, opt.source, opt.weights, opt.deep_sort_model, opt.show_vid, opt.save_vid, \
         opt.save_txt, opt.imgsz, opt.evaluate, opt.half, opt.project, opt.name, opt.exist_ok
@@ -133,11 +136,13 @@ def detect(opt):
         # Inference
         visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if opt.visualize else False
         pred = model(img, augment=opt.augment, visualize=visualize)
+        
         t3 = time_sync()
         dt[1] += t3 - t2
 
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, opt.classes, opt.agnostic_nms, max_det=opt.max_det)
+       
         dt[2] += time_sync() - t3
 
         # Process detections
@@ -147,6 +152,7 @@ def detect(opt):
             if webcam:  # batch_size >= 1
                 p, im0, _ = path[i], im0s[i].copy(), dataset.count
                 s += f'{i}: '
+                
             else:
                 p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
 
@@ -174,14 +180,19 @@ def detect(opt):
                 # pass detections to deepsort
                 t4 = time_sync()
                 outputs = deepsort.update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
+                print(f"Outputs: {outputs}")
 
                 t5 = time_sync()
                 dt[3] += t5 - t4
 
                 # draw boxes for visualization
                 if len(outputs) > 0:
+                    # If save flag, save image and bounding boxes for uploading
+                    if save_data:
+                            save(im0s,str(outputs))
+                            save_data = False
+                            
                     for j, (output, conf) in enumerate(zip(outputs, confs)):
-
                         bboxes = output[0:4]
                         id = output[4]
                         cls = output[5]
@@ -206,7 +217,7 @@ def detect(opt):
                                 f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
                                                                bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))
 
-                LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), DeepSort:({t5 - t4:.3f}s)')
+                #LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), DeepSort:({t5 - t4:.3f}s)')
                 
                     
 
@@ -268,10 +279,9 @@ def detect(opt):
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
-    LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms deep sort update \
-        per image at shape {(1, 3, *imgsz)}' % t)
+    #LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms deep sort update per image at shape {(1, 3, *imgsz)}' % t)
     if save_txt or save_vid:
-        print('Results saved to %s' % save_path)
+        #print('Results saved to %s' % save_path)
         os.system('open ' + save_path)
         
     print(f"Totals: {class_dict}")
@@ -280,40 +290,102 @@ def detect(opt):
 
 def count_obj(box,w,h,id,moving,cls,class_dict):
     global total_count,tracker
+    global dir_data
+    global frame_count
+    frame_count +=1
+
+
     #find center of the box 
     cx, cy = (int(box[0]+(box[2]-box[0])/2) , int(box[1]+(box[3]-box[1])/2))
-
-    # if the object isn't in the middle of the frame, ignore it
+    # if the object isn't in the defined tracking area, ignore it
     if cy>= int(h//2) or cy<= int(h//2)-300:
         return
             
     if moving:
         if cy < (int(h/2)-20):
             if id not in tracker:
-                print(f"\nID: {id}, H: {h} up\n")
+                #print(f"\nID: {id}, H: {h} up\n")
                 total_count +=1
                 tracker.append(id)
+                
                 if cls not in class_dict:
                     class_dict[cls] = 1
                 else:
                     class_dict[cls] += 1  
 
 def motion(id,y):
+    ''' determines if objects are moving'''
     global dir_data
+    global top_id
+    global save_data
 
-    if id not in dir_data:
-        dir_data[id] = y
+    dir_data[id] = y
+    #sys.stdout.write(f'\r {dir_data}')
+
+    if dir_data[id] - y <= 0:
+        return False
     else:
-        diff = dir_data[id] -y
+        return True
+    
+def track_obj(id,y):
+    if len(top_id) == 0:
+        # Set first detected object as top_id
+        top_id.append(id)
+        top_id.append(y)
+        print(f"Top id: {top_id[0]}")
+    
+    if top_id[0] not in dir_data :
+        get_top_id()
 
-        if diff<1:
-            return False
-        else:
-            return True
+    else:
+        ''' Check for stale data '''
+        if(dir_data[top_id[0]] == top_id[1]):
+            #del dir_data[top_id[0]]
+            get_top_id()
+            save_data = False
+        if len(top_id)>1:
+            if dir_data[top_id[0]] < 50:
+        # if the object is less than 50 pixels from the top of the frame
+                save_data = True
+                get_top_id()
+            else:
+                save_data = False
+    
+    sys.stdout.write(f'\r {dir_data}')
+
+def get_top_id():
+
+    global top_id
+    global dir_data
+    if len(dir_data) == 0:
+        top_id = []
+        return
+    top_id[0] = max(dir_data, key=dir_data.get)
+    top_id[1] = dir_data[top_id[0]] 
+
+def save(img,annotations):
+    ''' Save images and annotations to a folder '''
+    print("Saving data")
+    name = str(int(time.time()))
+    image_save_dir = Path('inference/output')
+    annotations_save_dir = Path('inference/output/annotations')
+    if not os.path.exists(image_save_dir):
+        os.makedirs(image_save_dir)
+    if not os.path.exists(annotations_save_dir):
+        os.makedirs(annotations_save_dir)
+    file = (f"{image_save_dir/name}.jpg")
+    cv2.imwrite(file,img)
+    with open((annotations_save_dir/name).with_suffix('.txt'), 'a') as file:
+        file.write(annotations)
+    #upload_data(device_id=1, raw_image_path=f"{image_save_dir/name}.jpg", data=f"{annotations_save_dir/name}.txt")
+    # print("Data saved")
+    # os.remove(f"{image_save_dir/name}.jpg")
+    # os.remove(f"{annotations_save_dir/name}.txt")
+    
+
 
 
 if __name__ == '__main__':
-    __author__ = 'Mahimai Raja J'
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='yolov5s.pt', help='model.pt path(s)')
     parser.add_argument('--deep_sort_model', type=str, default='osnet_x0_25')
@@ -344,3 +416,8 @@ if __name__ == '__main__':
 
     with torch.no_grad():
         detect(opt)
+
+
+# Camera onoly has one panel in frame
+# don't want to upload while tracking
+# Possibly save images in a queue and upload them in a separate thread
