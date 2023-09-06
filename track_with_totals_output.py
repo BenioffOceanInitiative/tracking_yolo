@@ -2,6 +2,7 @@ import torch
 from sort import *
 import cv2
 import os
+from utils.general import xyxy2xywh
 
 save_path = os.path.join(os.getcwd(), 'output')
 if not os.path.exists(save_path):
@@ -35,7 +36,7 @@ while True:
     detections = predictions.pandas().xyxy[0].to_numpy()
     if len(detections) == 0:
         continue
-
+    xywhs = xyxy2xywh(detections[:, 0:4])
     # Converting detections to the format [x1, y1, x2, y2, confidence, class_idx, name]
     track_detections = []
     for detect in detections:

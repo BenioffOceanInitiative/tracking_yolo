@@ -19,7 +19,7 @@
 ## Run DeepSORT tracking
 
 ```
-python deep.py --weights <path to .pt file> --source<path to video file or specify camera>  --save-vid(to save video)
+python deep.py --weights <path to .pt file> --source<path to video file or specify camera>  --save-vid(to save video) --show-vid(to show video output)
 ```
 
 

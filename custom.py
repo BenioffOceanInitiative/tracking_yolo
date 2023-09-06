@@ -1,6 +1,6 @@
 import torch
 
-model = torch.hub.load('ultralytics/yolov5', 'custom', path='exp3_redo.pt')
+model = torch.hub.load('ultralytics/yolov5', 'custom', path='exp5_200.pt')
 model.conf = 0.1  # Confidence threshold (0-1)
 
 img = "hc1.jpg"

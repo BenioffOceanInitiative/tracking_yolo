@@ -38,19 +38,46 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+baltimore_ai_class_dict={ 
+            0:"plastic_bag",
+            1:"plastic_bottle",
+            2:"plastic_cap",
+            3:'plastic_container',
+            4:"plastic_wrapper",
+            5:"plastic_other",
+            6:"foam_container",
+            7:"Foam_other",
+            8:"glass_bottle",
+            9:"paper_container",
+            10:"paper_other",
+            11:"Metal_cap",
+            12:"Metal_can",
+            13:"ppe",
+            14:"misc"
+            }
 
 class_dict = {}
 dir_data = {}
 top_id = []
 save_data = False
 miss_count = 0
+tracker = []
+w = 0
+h = 0
+frame_count = 0
+filename = None
 
 
 def detect(opt):
-    global save_data
-    out, source, yolo_model, deep_sort_model, show_vid, save_vid, save_txt, imgsz, evaluate, half, project, name, exist_ok= \
+    global save_data 
+    global w
+    global h
+    global top_id
+    global filename
+    save_data = True
+    out, source, yolo_model, deep_sort_model, show_vid, save_vid, imgsz, evaluate, half, project, name, exist_ok= \
         opt.output, opt.source, opt.weights, opt.deep_sort_model, opt.show_vid, opt.save_vid, \
-        opt.save_txt, opt.imgsz, opt.evaluate, opt.half, opt.project, opt.name, opt.exist_ok
+         opt.imgsz, opt.evaluate, opt.half, opt.project, opt.name, opt.exist_ok
     webcam = source == '0' or source.startswith(
         'rtsp') or source.startswith('http') or source.endswith('.txt')
 
@@ -112,10 +139,6 @@ def detect(opt):
     for i, name in enumerate(names):  
         if name not in class_dict:
             class_dict[i] = 0
-
-    # extract what is in between the last '/' and last '.'
-    txt_file_name = source.split('/')[-1].split('.')[0]
-    txt_path = str(Path(save_dir)) + '/' + txt_file_name + '.txt'
 
     if pt and device.type != 'cpu':
         model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.model.parameters())))  # warmup
@@ -192,8 +215,10 @@ def detect(opt):
                 if len(outputs) > 0:
                     # If save flag, save image and bounding boxes for uploading
                     marker_object_tracking(outputs)
+                    if filename == None:
+                        save_frame(im0)
                     if save_data:
-                            save(im0s,str(outputs))
+                            upload()
                             save_data = False
                             
                             
@@ -210,17 +235,7 @@ def detect(opt):
                         c = int(cls)  # integer class
                         label = f'{id} {names[c]} {conf:.2f}'
                         annotator.box_label(bboxes, label, color=colors(c, True))
-
-                        if save_txt:
-                            # to MOT format
-                            bbox_left = output[0]
-                            bbox_top = output[1]
-                            bbox_w = output[2] - output[0]
-                            bbox_h = output[3] - output[1]
-                            # Write MOT compliant results to file
-                            with open(txt_path, 'a') as f:
-                                f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
-                                                               bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))
+                        
 
                 #LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), DeepSort:({t5 - t4:.3f}s)')
                 
@@ -234,29 +249,23 @@ def detect(opt):
             im0 = annotator.result()
                             
             if show_vid:
-                
-                color=(0,0,255)
-                # print(f"Shape: {im0.shape}")
 
                 # draw lines
                 cv2.line(im0, (0, int(h/2)), (w,int(h/2)), (255,0,0), thickness=3)
                 cv2.line(im0, (0, int(h/2)-300), (w,int(h/2)-300), (255,0,0), thickness=3)
 
-                
-                
                 thickness = 3 # font thickness
                 font = cv2.FONT_HERSHEY_SIMPLEX
                 fontScale = 1.2 
-                cv2.putText(im0, "Outgoing Trash:  "+str(sum(class_dict.keys())), (60, 150), font, 
+                cv2.putText(im0, "Outgoing Trash:  "+str(sum(class_dict.values())), (60, 150), font, 
+                   fontScale, (99,185,245), thickness, cv2.LINE_AA)
+                cv2.putText(im0, "Top id:  "+str(top_id), (60, 200), font, 
                    fontScale, (99,185,245), thickness, cv2.LINE_AA)
 
-        
                 end_time = time.time()
                 fps = 1 / (end_time - start_time)
                 cv2.putText(im0, "FPS: " + str(int(fps)), (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-
-                
                 try :
                     cv2.imshow('Baltimore_AI', im0)
                     if cv2.waitKey(1) % 256 == 27:  # ESC code 
@@ -285,8 +294,8 @@ def detect(opt):
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
     #LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms deep sort update per image at shape {(1, 3, *imgsz)}' % t)
-    if save_txt or save_vid:
-        #print('Results saved to %s' % save_path)
+    if save_vid:
+
         os.system('open ' + save_path)
         
     print(f"Totals: {class_dict}")
@@ -294,8 +303,7 @@ def detect(opt):
 
 
 def count_obj(box,w,h,id,cls,class_dict):
-
-  
+    global tracker  
     #find center of the box 
     cx, cy = (int(box[0]+(box[2]-box[0])/2) , int(box[1]+(box[3]-box[1])/2))
     # if the object isn't in the defined tracking area, ignore it
@@ -303,11 +311,13 @@ def count_obj(box,w,h,id,cls,class_dict):
         return
             
     if cy < (int(h/2)-20):
-                
-        if cls not in class_dict:
-            class_dict[cls] = 1
-        else:
-            class_dict[cls] += 1  
+
+        if id not in tracker:
+            tracker.append(id)         
+            if cls not in class_dict:
+                class_dict[cls] = 1
+            else:
+                class_dict[cls] += 1  
 
 def motion(id,y):
     ''' determines if objects are moving'''
@@ -328,7 +338,8 @@ def marker_object_tracking(outputs):
     global top_id
     global save_data
     global miss_count
-    
+    global class_dict
+   
     for output in outputs:
         id = output[4]
         y = output[1]
@@ -345,13 +356,22 @@ def marker_object_tracking(outputs):
             miss_count += 1 
             if miss_count > 90:
                 print("Missed object for too long")
-                top_id.clear()
-                get_top_id()
-                save_data = False
-                miss_count = 0
+                # find the closest object to the previous top id
+                closest = min(dir_data, key=lambda x:abs(x-top_id[1]))
+                if closest:
+                    top_id[0] = closest 
+                    top_id[1] = dir_data[closest]
+                    print(f"New top id: {top_id}")
+                    miss_count = 0
+                else:
+                    top_id.clear()
+                    get_top_id()
+                    class_dict.clear()
+                    miss_count = 0
         else:
             miss_count = 0
-            if dir_data[top_id[0]] < 200:
+            top_id[1] = dir_data[top_id[0]]
+            if dir_data[top_id[0]] < 100:
                 save_data = True
                 top_id.clear()
                 get_top_id()
@@ -360,57 +380,56 @@ def marker_object_tracking(outputs):
 
     elif len(top_id) == 0:
         get_top_id()
-        
-
-    #sys.stdout.write(f'\r {dir_data}')
-    #print(f"Dir Data: {dir_data}")
-    #print(f'{len(dir_data)} objects being tracked')
+        save_data = False
 
 def get_top_id():
-
+    global h
     global top_id
     global dir_data
     id = max(dir_data, key=dir_data.get)
-    if dir_data[id] < 1270:
-        top_id.clear()
-        return
-    else:
-        top_id.append(id)
-        top_id.append(dir_data[top_id[0]])
+    
+    
+    top_id.append(id)
+    top_id.append(dir_data[top_id[0]])
 
     print(f"Top ID: {top_id}")
 
-def save(img,annotations):
-    global class_dict
-    ''' Save images and annotations to a folder '''
-    print("Saving data")
-    name = str(int(time.time()))
+def save_frame(img):
+    global filename
+    filename = str(time.time()).replace('.','')
     image_save_dir = Path('inference/output')
-    annotations_save_dir = Path('inference/output/annotations')
-
     if not os.path.exists(image_save_dir):
         os.makedirs(image_save_dir)
-
-    if not os.path.exists(annotations_save_dir):
-        os.makedirs(annotations_save_dir)
-
-    file = (f"{image_save_dir/name}.jpg")
+    file = (f"{image_save_dir/filename}.jpg")
+    print(f"Saving image: {file}")
     cv2.imwrite(file,img)
-    with open((annotations_save_dir/name).with_suffix('.txt'), 'a') as file:
-        file.write(annotations)
+    return
+
+def upload():
+    global class_dict,tracker,baltimore_ai_class_dict,filename
+
+    
+    print("Saving data")
+    image_save_dir = Path('inference/output')
     now = datetime.datetime.now(tz=datetime.timezone.utc)
-    timestamp = now.strftime('%m-%d-%y %H:%M:%S')
-    data = class_dict.copy()
-    data['timestamp'] = timestamp
-    data['totals'] = sum(class_dict.values())
-    json.dumps(data)
-    upload_data(device_id=2, image_file_path=f"{image_save_dir}/{name}.jpg", bounding_box_file_path=f"{annotations_save_dir}/{name}.txt",data=data)
+    timestamp = now.strftime('%Y-%m-%d %H:%M:%S')
+    data = {}
+    for k,v in class_dict.items():
+        data[baltimore_ai_class_dict[k]] = v
+    #data['timestamp'] = timestamp
+    upload_data(device_id=2, image_file_path=f"{image_save_dir}/{filename}.jpg",data=json.dumps(data),timestamp=timestamp)
     print("Data saved")
-    # os.remove(f"{image_save_dir/name}.jpg")
-    # os.remove(f"{annotations_save_dir/name}.txt")
+    os.remove(f"{image_save_dir/filename}.jpg")
+
+    # Reset the class dictionary and tracker for the next image
+    tracker.clear()
+    for k,v in class_dict.items():
+        class_dict[k] = 0
+
+    filename = None
     return
     
-    
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='yolov5s.pt', help='model.pt path(s)')
@@ -422,9 +441,8 @@ if __name__ == '__main__':
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--fourcc', type=str, default='MJPG', help='output video codec (verify ffmpeg support)')
     parser.add_argument('--device', default='cpu', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--show-vid', default='store_true', action='store_true', help='display tracking video results')
-    parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
-    parser.add_argument('--save-txt', action='store_true', help='save MOT compliant results to *.txt')
+    parser.add_argument('--show-vid', default=False, action='store_true', help='display tracking video results')
+    parser.add_argument('--save-vid', action='store_true',default=False, help='save video tracking results')
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 16 17')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
